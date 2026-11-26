@@ -10,7 +10,7 @@ const navigation = [
   ["infrastruktur", "Infrastruktur"], ["tiket", "Tiket"], ["lapor", "Lapor"]
 ];
 
-export function SiteHeader({ name, category }) {
+export function SiteHeader({ name, category, activePage }) {
   const [expanded, setExpanded] = useState(false);
   const [scrolled, setScrolled] = useState(() => window.scrollY > 24);
   useEffect(() => {
@@ -31,7 +31,7 @@ export function SiteHeader({ name, category }) {
     <button className="menu-toggle" aria-expanded={expanded} aria-controls="site-navigation"
       onClick={() => setExpanded(!expanded)}>Menu <span aria-hidden="true">{expanded ? "−" : "+"}</span></button>
     <nav id="site-navigation" className={expanded ? "site-navigation is-open" : "site-navigation"} aria-label="Navigasi utama">
-      {navigation.map(([path, text]) => <a key={path} href={"#" + path} onClick={() => setExpanded(false)}>{text}</a>)}
+      {navigation.map(([path, text]) => <a key={path} href={"#" + path} aria-current={activePage === path ? "page" : undefined} onClick={() => setExpanded(false)}>{text}</a>)}
     </nav>
     <a className="site-account" href={name ? "#profil" : "#masuk"}>
       <span className="person-icon" aria-hidden="true" />

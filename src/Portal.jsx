@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { corridor, findJourney, outboundStops, inboundStops, rupiah } from "./transit.js";
 import Landing from "./Landing.jsx";
+import StopMap from "./StopMap.jsx";
 import "./portal.css";
 
 const pageNames = {
@@ -60,6 +61,12 @@ export default function Portal({ name, category, onLogout }) {
   if (page === "beranda" || page === "jadwal") {
     return <Landing name={name} category={category} trip={trip} setTrip={setTrip} onChooseCorridor={setReverse} />;
   }
+  if (page === "peta") {
+    return <StopMap name={name} category={category} onPlanTrip={nextTrip => {
+      setTrip(nextTrip);
+      location.hash = "jadwal";
+    }} />;
+  }
   return <div className="portal">
     <header className="mast"><a className="wordmark" href="#beranda">Smart<span>Stop</span></a>
       <div className="mast-links">{["beranda","jadwal","peta","tiket"].map(key =>
@@ -70,11 +77,11 @@ export default function Portal({ name, category, onLogout }) {
       {page !== "beranda" && <a href="#beranda">← Beranda</a>}
       <h1 ref={heading} tabIndex="-1">{pages[page]}</h1>
       {page === "koridor" && <article className="surface"><h2>{corridor.name} · Bulupitu ↔ Bukateja</h2><button className="outline" onClick={()=>setReverse(!reverse)}>Balik arah ⇄</button><StopList items={reverse ? inboundStops : outboundStops}/><a href="#peta">Buka peta halte →</a></article>}
-      {(page === "peta" || page === "infrastruktur") && <article className="surface">
-        <h2>{page === "peta" ? "Skema halte Koridor 1" : "Fasilitas per halte"}</h2>
+      {page === "infrastruktur" && <article className="surface">
+        <h2>Fasilitas per halte</h2>
         <div className="station-grid"><div className="stations">{stops.map(s=><button key={s} aria-pressed={s === stop} onClick={()=>setStop(s)}>{s}</button>)}</div>
         <div className="station-info"><small>{corridor.name}</small><h3>{stop}</h3>
-        {page === "peta" ? <><p>Titik singgah {stops.indexOf(stop)+1} dari {stops.length}</p><p>Posisi bus belum tersedia.</p><a href="#infrastruktur">Lihat fasilitas →</a></> : <p>Informasi akses kursi roda, tempat duduk, dan kondisi halte belum tersedia.</p>}</div></div></article>}
+        <p>Informasi akses kursi roda, tempat duduk, dan kondisi halte belum tersedia.</p></div></div></article>}
       {page === "tiket" && <form className="surface" onSubmit={book}><h2>{pages.tiket} · {rupiah(fare)}</h2>
         <p>{trip.from} → {trip.to} · <a href="#jadwal">Ubah rute</a></p><label>Keberangkatan contoh (WIB)<select name="departure">{corridor.departures.map(t=><option key={t}>{t}</option>)}</select></label>
         <label>Jumlah penumpang<input type="number" name="quantity" min="1" max="10" defaultValue="1" required/></label>
