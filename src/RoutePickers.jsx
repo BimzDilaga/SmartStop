@@ -56,16 +56,16 @@ export function StopPicker({ value, otherValue, label, variant, onChange }) {
   </>;
 }
 
-export function BusPicker({ value, onChange }) {
+export function BusPicker({ value, onChange, placeholder }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
   const current = buses.find(bus => bus.id === value) || buses[0];
   const chosen = buses.find(bus => bus.id === draft) || current;
   return <>
     <button className="bus-picker-trigger" type="button" aria-haspopup="dialog" aria-expanded={open}
-      aria-label={"Pilih bus, Bus " + current.number} onClick={() => { setDraft(value); setOpen(true); }}>
+      aria-label={!value && placeholder ? placeholder : "Pilih bus, Bus " + current.number} onClick={() => { setDraft(value); setOpen(true); }}>
       <img src={current.photo} alt="" width="48" height="40" />
-      <span><small>Pilih armada</small><strong>Bus {current.number}</strong></span><span aria-hidden="true">⌄</span>
+      <span><small>Pilih armada</small><strong>{!value && placeholder ? placeholder : "Bus " + current.number}</strong></span><span aria-hidden="true">⌄</span>
     </button>
     <PickerDialog open={open} onClose={() => setOpen(false)} title="Pilih armada bus"
       description="Pilih bus untuk melihat skema koridornya." className="bus-dialog">

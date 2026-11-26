@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef } from "react";
 
-export default function PickerDialog({ open, onClose, title, description, className = "", children }) {
+export default function PickerDialog({ open, onClose, onRequestClose, title, description, className = "", children }) {
   const dialog = useRef(null);
   const exitAnimation = useRef(null);
   const closing = useRef(false);
@@ -47,11 +47,15 @@ export default function PickerDialog({ open, onClose, title, description, classN
     return event.clientX < rect.left || event.clientX > rect.right ||
       event.clientY < rect.top || event.clientY > rect.bottom;
   }
+  function requestClose() {
+    if (onRequestClose) onRequestClose(close);
+    else close();
+  }
 
   function keepFocus(event) {
     if (event.key !== "Tab") return;
     const element = dialog.current;
-    const controls = [...element.querySelectorAll('button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]')];
+    const controls = [...element.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]')].filter(control => control.getClientRects().length > 0);
     const first = controls[0];
     const last = controls.at(-1);
     if (event.shiftKey && document.activeElement === first) {
@@ -65,15 +69,15 @@ export default function PickerDialog({ open, onClose, title, description, classN
   return <dialog ref={dialog} className={"picker-dialog " + className}
     aria-labelledby={titleId} aria-describedby={descriptionId}
     onKeyDown={keepFocus}
-    onCancel={event => { event.preventDefault(); close(); }}
+    onCancel={event => { event.preventDefault(); requestClose(); }}
     onPointerDown={event => { backdropPress.current = event.target === event.currentTarget && outside(event); }}
     onClick={event => {
-      if (backdropPress.current && event.target === event.currentTarget && outside(event)) close();
+      if (backdropPress.current && event.target === event.currentTarget && outside(event)) requestClose();
     }}>
     {open && <>
       <div className="picker-header">
         <div><h2 className="picker-title" id={titleId}>{title}</h2><p id={descriptionId}>{description}</p></div>
-        <button className="picker-close" type="button" aria-label="Tutup popup" onClick={close}>×</button>
+        <button className="picker-close" type="button" aria-label="Tutup popup" onClick={requestClose}>×</button>
       </div>
       {children(close)}
     </>}

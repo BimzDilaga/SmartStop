@@ -10,6 +10,7 @@ import registerPoster from "../assets/poster-30.png";
 import studentPoster from "../assets/poster-31.png";
 import recoveryPoster from "../assets/poster-32.png";
 import Portal from "./Portal.jsx";
+import AdminPanel from "./admin/AdminPanel.jsx";
 import "../assets/index.css";
 
 const screens = {
@@ -110,7 +111,7 @@ function Auth({ onEnter }) {
         <h1 id="judul" tabIndex={-1}>{heading}</h1>
         <p id="intro">{intro}</p>
         <small>Mode demo · gunakan data contoh.</small>
-        {mode === "masuk" && <details><summary>Coba akun demo</summary><p>Pelajar: pelajar@example.com<br/>Umum: umum@example.com<br/>Gunakan kata sandi contoh bebas.</p></details>}
+        {mode === "masuk" && <details><summary>Coba akun demo</summary><p>Pelajar: pelajar@example.com<br/>Umum: umum@example.com<br/>Gunakan kata sandi contoh bebas.</p><p><a href="#admin">Pratinjau dashboard admin</a></p></details>}
         <nav aria-label="Pilihan akun"><a href="#masuk" aria-current={mode === "masuk" ? "page" : undefined}>Masuk</a><a href="#daftar" aria-current={register ? "page" : undefined}>Daftar</a></nav>
         <form id="formulir" onSubmit={submit}>
           <div id="profil" hidden={!register}>
@@ -143,6 +144,8 @@ function Auth({ onEnter }) {
 }
 
 function App() {
+  // This route is a frontend preview. Real admin authentication belongs to the backend.
+  const [adminOpen, setAdminOpen] = useState(() => /^#admin(?:\/|$)/.test(location.hash));
   const [user, setUser] = useState(() => sessionStorage.getItem("smartstop.demoName"));
   const [category, setCategory] = useState(() => sessionStorage.getItem("smartstop.demoCategory") || "umum");
   const [authOpen, setAuthOpen] = useState(() => {
@@ -153,7 +156,10 @@ function App() {
     return false;
   });
   useEffect(() => {
-    const update = () => setAuthOpen(Object.hasOwn(screens, location.hash.slice(1)));
+    const update = () => {
+      setAuthOpen(Object.hasOwn(screens, location.hash.slice(1)));
+      setAdminOpen(/^#admin(?:\/|$)/.test(location.hash));
+    };
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
@@ -171,6 +177,7 @@ function App() {
     location.hash = "beranda";
     setUser(null);
   }
+  if (adminOpen) return <AdminPanel onExit={leave} />;
   return !user && authOpen ? <Auth onEnter={enter} /> : <Portal name={user} category={user ? category : "umum"} onLogout={leave} />;
 }
 
