@@ -1,0 +1,58 @@
+.portal { min-height: 100svh; background: #f3f7fa; color: #172d40; }
+.mast, .portal footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px max(5vw, calc((100vw - 1080px) / 2)); background: white; }
+.mast { border-bottom: 1px solid #dce4ea; }
+.account-link { padding: 10px 20px; border-radius: 10px; background: #006d9e; color: white; text-decoration: none; }
+.back-home { display: inline-block; margin-bottom: 18px; }
+.wordmark { font-size: 1.65rem; font-style: italic; letter-spacing: -.06em; color: #122538; text-decoration: none; font-weight: 850; }
+.wordmark span { color: #be2235; }
+.mast-links { display: flex; gap: 18px; flex-wrap: wrap; }
+.mast-links a { padding: 5px 0; color: #42566a; font-size: .88rem; text-decoration: none; }
+.mast-links [aria-current] { color: #006c9d; box-shadow: inset 0 -2px currentColor; }
+.portal-body { width: min(90%, 1080px); margin: auto; padding: 32px 0 64px; min-height: 80svh; }
+.context { display: flex; align-items: center; gap: 12px; font-size: .83rem; color: #506172; }
+.context span { border: 1px solid #bdcdd8; border-radius: 20px; padding: 2px 9px; }
+.portal h1 { margin: 16px 0 24px; font-size: clamp(2rem, 4vw, 3.4rem); letter-spacing: -.055em; }
+.portal h2, .portal h3 { line-height: 1.25; letter-spacing: -.035em; }
+.hero-trip { background: #102e44; border-radius: 22px; display: grid; grid-template-columns: 3fr 2fr; color: white; overflow: hidden; }
+.hero-trip > div { padding: clamp(24px, 5vw, 65px); align-self: center; }
+.hero-trip h2 { font-size: clamp(1.8rem, 4vw, 3.6rem); margin: 12px 0; }
+.hero-trip h2 span, .kicker { color: #83d5f6; }
+.kicker { font-size: .77rem; font-weight: 750; letter-spacing: .12em; }
+.hero-trip img { width: 100%; height: 100%; min-height: 230px; object-fit: cover; object-position: 50% 77%; max-height: 360px; }
+.hero-trip a { display: inline-block; color: white; margin-top: 24px; }
+.surface, .trip-picker { padding: clamp(18px, 3vw, 34px); background: white; border: 1px solid #dce5ec; border-radius: 16px; margin: 20px 0; }
+.surface h2, .trip-picker h2 { margin-top: 0; }
+.trip-fields, .station-grid { display: grid; grid-template-columns: 1fr 1fr auto; gap: 14px; align-items: end; }
+.portal label { margin: 12px 0; }
+.portal label select, .portal label input, .portal textarea { display: block; margin-top: 6px; width: 100%; }
+.portal textarea { font: inherit; padding: 12px; border-radius: 10px; border: 1px solid #cbd5e1; }
+.go, .outline, .stations button { border-radius: 10px; padding: 12px 17px; border: 1px solid #b9ccda; background: white; color: #15394e; }
+.go { background: #006d9e; color: white; border-color: transparent; margin: 12px 0; }
+.go:hover { background: #005580; }
+.go:disabled { opacity: .5; }
+.service-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.service { display: grid; margin: 0; color: inherit; text-decoration: none; }
+.service:hover { border-color: #498da9; }
+.service b { color: #0076a4; font-size: 1.7rem; }
+.service strong { margin: 8px 0 3px; }
+.service small { font-weight: 400; }
+.station-grid { grid-template-columns: 1fr 1fr; align-items: start; }
+.stations { display: grid; gap: 6px; }
+.stations button { text-align: left; }
+.stations [aria-pressed=true], .station-info, .times strong { background: #eaf5fa; }
+.station-info, .times strong { padding: 16px; border-radius: 10px; }
+.surface p { margin: 12px 0; }
+.times { display: flex; gap: 8px; flex-wrap: wrap; }
+.line-list { list-style: circle; padding-left: 26px; }
+.line-list li { padding: 7px 0; }
+.portal footer { color: #516273; font-size: .85rem; }
+@media(max-width: 740px) {
+  .mast { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+  .mast-links { grid-row: 2; grid-column: 1 / -1; gap: 5px 12px; }
+  .account-link { grid-area: 1 / 2; }
+  .hero-trip { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); }
+  .hero-trip img { max-height: none; }
+  .hero-trip > div { padding: 18px; }
+  .trip-fields, .station-grid { grid-template-columns: 1fr; gap: 0; }
+  .service-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+}
