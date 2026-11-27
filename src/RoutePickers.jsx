@@ -1,16 +1,15 @@
 import React, { useState } from "react";
 import PickerDialog from "./PickerDialog.jsx";
 import { corridor, routeDirections } from "./transit.js";
+import { fleetFixtures } from "./fleet.js";
 import bukatejaPhoto from "../assets/koridor-bukateja.png";
 import bulupituPhoto from "../assets/koridor-bulupitu.png";
 import "./pickers.css";
 
 // Visual fixtures only. Actual fleet records and photos will come from the backend.
-const buses = Array.from({ length: 14 }, (_, index) => ({
-  id: String(index + 1),
-  number: String(index + 1).padStart(2, "0"),
-  direction: routeDirections[index % 2],
-  photo: index % 2 === 0 ? bukatejaPhoto : bulupituPhoto
+const buses = fleetFixtures.map(bus => ({ ...bus,
+  direction: routeDirections.find(direction => direction.id === bus.direction),
+  photo: bus.direction === "bukateja" ? bukatejaPhoto : bulupituPhoto
 }));
 
 function stopLabel(stop) {
@@ -19,13 +18,13 @@ function stopLabel(stop) {
   return stop;
 }
 
-export function StopPicker({ value, otherValue, label, variant, onChange }) {
+export function StopPicker({ value, otherValue, label, variant, onChange, options = corridor.stops, disabled = false }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const results = corridor.stops.filter(stop => stopLabel(stop).toLocaleLowerCase("id").includes(query.trim().toLocaleLowerCase("id")));
+  const results = options.filter(stop => stopLabel(stop).toLocaleLowerCase("id").includes(query.trim().toLocaleLowerCase("id")));
   return <>
     <button type="button" className={"stop-field stop-trigger stop-" + variant}
-      aria-label={label} aria-haspopup="dialog" aria-expanded={open}
+      aria-label={label} aria-haspopup="dialog" aria-expanded={open} disabled={disabled}
       onClick={() => { setQuery(""); setOpen(true); }}>
       <span>{label}</span>
       <span className="stop-trigger-value"><span>{stopLabel(value)}</span><span aria-hidden="true">⌄</span></span>
@@ -56,11 +55,15 @@ export function StopPicker({ value, otherValue, label, variant, onChange }) {
   </>;
 }
 
-export function BusPicker({ value, onChange, placeholder }) {
+export function BusPicker({ value, onChange, placeholder, options }) {
+  const availableBuses = options ? options.map(bus => ({ ...bus,
+    direction: routeDirections.find(direction => direction.id === bus.direction),
+    photo: bus.direction === "bukateja" ? bukatejaPhoto : bulupituPhoto
+  })) : buses;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
-  const current = buses.find(bus => bus.id === value) || buses[0];
-  const chosen = buses.find(bus => bus.id === draft) || current;
+  const current = availableBuses.find(bus => bus.id === value) || availableBuses[0];
+  const chosen = availableBuses.find(bus => bus.id === draft) || current;
   return <>
     <button className="bus-picker-trigger" type="button" aria-haspopup="dialog" aria-expanded={open}
       aria-label={!value && placeholder ? placeholder : "Pilih bus, Bus " + current.number} onClick={() => { setDraft(value); setOpen(true); }}>
@@ -82,7 +85,7 @@ export function BusPicker({ value, onChange, placeholder }) {
               <small>Foto dan armada contoh untuk pratinjau.</small>
             </div>
           </article>
-          <div className="bus-grid" aria-label="Daftar armada">{buses.map(bus =>
+          <div className="bus-grid" aria-label="Daftar armada">{availableBuses.map(bus =>
             <button type="button" key={bus.id} aria-label={"Bus " + bus.number}
               aria-pressed={bus.id === draft} onClick={() => setDraft(bus.id)}>
               <img src={bus.photo} alt="" width="120" height="64" loading="lazy" />

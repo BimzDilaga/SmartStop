@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SiteFooter, SiteHeader } from "./Landing.jsx";
 import { routeDirections } from "./transit.js";
+import { arrivalAt, busLocation } from "./fleet.js";
+import BusStatus, { BusSymbol, SimulationToggle, FleetFeedNotice } from "./BusStatus.jsx";
+import MapBooking from "./MapBooking.jsx";
 import "./stop-map.css";
 
 // Display coordinates for the schematic only. These are not geographic positions.
@@ -35,11 +38,18 @@ function Icon({ name, ...props }) {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...props}>{paths[name]}</svg>;
 }
 
-function CorridorMap({ direction, points, selected, onSelect }) {
+function CorridorMap({ direction, points, selected, onSelect, buses, activeBus, onSelectBus }) {
   const [zoom, setZoom] = useState(1);
   const current = points[selected];
   const landmarks = waypoints[direction.id].map(anchor => anchor[0]);
   const markers = points.filter(point => landmarks.includes(point.index) || point.index === selected);
+  const busPoints = buses.map(bus => {
+    const location = busLocation(bus);
+    const start = points[location.lastIndex];
+    const end = points[location.nextIndex];
+    const fraction = location.position - location.lastIndex;
+    return { ...bus, x: start.x + (end.x - start.x) * fraction, y: start.y + (end.y - start.y) * fraction };
+  });
   const centerX = zoom === 1 ? 0 : Math.max(100 * (1 - zoom), Math.min(0, 50 - current.x * zoom));
   const centerY = zoom === 1 ? 0 : Math.max(100 * (1 - zoom), Math.min(0, 50 - current.y * zoom));
 
@@ -71,9 +81,12 @@ function CorridorMap({ direction, points, selected, onSelect }) {
           style={{ left: point.x + "%", top: point.y + "%", "--map-zoom": zoom }}
           aria-label={"Pilih halte " + point.name} aria-pressed={point.index === selected}
           onClick={() => onSelect(point.index)}>
-          <span className="map-pin-dot"><Icon name={point.index === selected ? "bus" : "pin"} /></span>
+          <span className="map-pin-dot"><Icon name="pin" /></span>
           <span className="map-pin-label">{point.name}</span>
         </button>)}
+        {busPoints.map(bus => <button key={bus.id} className={"map-bus-marker" + (bus.id === activeBus.id ? " is-active" : "")}
+          style={{ left: bus.x + "%", top: bus.y + "%", "--map-zoom": zoom }} aria-label={"Pantau bus " + bus.number + ", " + bus.code}
+          aria-pressed={bus.id === activeBus.id} onClick={() => onSelectBus(bus.id)}><BusSymbol /><strong>{bus.number}</strong>{bus.id === activeBus.id && <span>{bus.code}</span>}</button>)}
       </div>
     </div>
     <div className="map-corner-tag"><Icon name="layers" /><span>Skema koridor<strong>Bukan peta geografis</strong></span></div>
@@ -82,16 +95,25 @@ function CorridorMap({ direction, points, selected, onSelect }) {
       <button aria-label="Perkecil skema" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, +(value - .2).toFixed(1)))}>−</button>
       <button aria-label="Atur ulang skema" onClick={() => setZoom(1)}><Icon name="focus" /></button>
     </div>
-    <div className="map-legend"><span /><span>Koridor 1</span><i /><span>Halte dipilih</span></div>
+    <div className="map-bus-hud"><span className="map-hud-icon"><BusSymbol /></span><div><strong>{activeBus.code} · {activeBus.passengers}/{activeBus.capacity} penumpang</strong><span>{arrivalAt(activeBus, selected).label} · {activeBus.source === "api" ? "laporan supir" : "simulasi"}</span></div></div>
   </div>;
 }
 
-export default function StopMap({ name, category, onPlanTrip }) {
-  const [directionId, setDirectionId] = useState("bukateja");
-  const [selected, setSelected] = useState(0);
+export default function StopMap({ name, category, fleet, monitoredBus, onSelectBus, simulationRunning, onToggleSimulation, focus, onBook, isDemo = true, fleetError, onRetry }) {
+  const initialDirection = fleet.some(bus => bus.direction === focus?.direction) ? focus.direction : fleet.find(bus => bus.id === monitoredBus)?.direction || fleet[0]?.direction || "bukateja";
+  const [directionId, setDirectionId] = useState(initialDirection);
+  const [selected, setSelected] = useState(() => {
+    const direction = routeDirections.find(item => item.id === initialDirection);
+    const index = direction.stops.indexOf(focus?.stop);
+    return index >= 0 ? index : initialDirection === "bukateja" ? 8 : 9;
+  });
+  const [destination, setDestination] = useState(() => routeDirections.find(item => item.id === initialDirection).stops.length - 1);
   const [query, setQuery] = useState("");
   const root = useRef(null);
   const direction = routeDirections.find(item => item.id === directionId);
+  const buses = fleet.filter(bus => bus.direction === directionId);
+  const activeBus = buses.find(bus => bus.id === monitoredBus) || buses[0];
+  const orderedBuses = [...buses].sort((a, b) => (arrivalAt(a, selected).minutes ?? Infinity) - (arrivalAt(b, selected).minutes ?? Infinity));
   const points = useMemo(() => schematicPoints(direction), [direction]);
   const search = query.trim().toLocaleLowerCase("id-ID");
   const results = points.filter(point => point.name.toLocaleLowerCase("id-ID").includes(search));
@@ -107,7 +129,7 @@ export default function StopMap({ name, category, onPlanTrip }) {
         observer.unobserve(entry.target);
       });
     }, { threshold: .08 });
-    root.current.querySelectorAll("[data-reveal]").forEach(element => {
+    root.current?.querySelectorAll("[data-reveal]").forEach(element => {
       if (element.getBoundingClientRect().top < innerHeight) return;
       element.classList.add("await-reveal");
       observer.observe(element);
@@ -116,11 +138,27 @@ export default function StopMap({ name, category, onPlanTrip }) {
   }, []);
 
   function changeDirection(id) {
+    const available = fleet.filter(bus => bus.direction === id);
+    if (!available.length) return;
     const next = routeDirections.find(item => item.id === id);
     const match = next.stops.indexOf(stop);
+    const nextIndex = match < 0 ? id === "bukateja" ? 8 : 9 : match;
     setDirectionId(id);
-    setSelected(match < 0 ? 0 : match);
+    setSelected(nextIndex);
+    setDestination(next.stops.length - 1);
+    setQuery("");
+    const best = [...available].filter(bus => bus.passengers < bus.capacity && arrivalAt(bus, nextIndex).minutes !== null).sort((a, b) => arrivalAt(a, nextIndex).minutes - arrivalAt(b, nextIndex).minutes)[0] || available[0];
+    onSelectBus(best.id);
   }
+  function selectStop(index) {
+    setSelected(index);
+    setDestination(current => current > index ? current : direction.stops.length - 1);
+  }
+  function showBooking() {
+    root.current.querySelector("#map-booking")?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+  }
+
+  if (!activeBus) return <div className="landing stop-map-page" ref={root}><SiteHeader name={name} category={category} activePage="peta" /><div className="fleet-data-empty"><h1>Belum ada bus pada arah ini</h1><p>Laporan perjalanan akan tampil setelah armada tersedia.</p>{routeDirections.filter(item => fleet.some(bus => bus.direction === item.id)).map(item => <button className="tracking-map-link" key={item.id} onClick={() => changeDirection(item.id)}>{item.title}</button>)}</div><SiteFooter /></div>;
 
   return <div className="landing stop-map-page" ref={root}>
     <a className="skip" href="#map-stop-search" onClick={event => {
@@ -133,19 +171,20 @@ export default function StopMap({ name, category, onPlanTrip }) {
       <div className="map-page-container">
         <div className="map-breadcrumb"><a href="#beranda">Beranda</a><span>/</span><span>Peta halte</span></div>
         <div className="map-title-row"><div><p className="map-eyebrow">JELAJAHI KORIDOR 1</p>
-          <h1>Setiap perjalanan,<br />mulai dari <span>satu halte.</span></h1>
-          <p>Cari titik singgah, kenali lintasannya, dan rencanakan perjalananmu.</p></div>
-          <div className="map-route-summary"><Icon name="bus" /><div><strong>Bulupitu ↔ Bukateja</strong><span>2 arah perjalanan · Banyumas & Purbalingga</span></div></div>
+          <h1>Pantau busnya.<br /><span>Atur perjalananmu.</span></h1>
+          <p>Lihat posisi bus, perkiraan tiba, dan jumlah penumpang. Pilih halte, lalu pesan tiket dari sini.</p></div>
+          <div className="map-route-summary"><Icon name="bus" /><div><strong>{buses.length} armada · {direction.title}</strong><span>{isDemo ? "Data simulasi" : "Posisi berdasarkan laporan supir"}</span></div></div>
         </div>
       </div>
     </div>
 
     <div className="map-page-container map-page-content">
+      <FleetFeedNotice isDemo={isDemo} fleetError={fleetError} onRetry={onRetry} />
       <div className="map-workspace">
         <aside className="stop-explorer" aria-label="Pencarian halte">
           <div className="explorer-top"><div className="explorer-heading"><span className="explorer-icon"><Icon name="pin" /></span><div><h2>Temukan halte</h2><p>Pilih arah, lalu titik singgahmu.</p></div></div>
             <div className="direction-switch" role="group" aria-label="Arah perjalanan">
-              {routeDirections.map(item => <button key={item.id} aria-pressed={directionId === item.id} onClick={() => changeDirection(item.id)}>{item.id === "bukateja" ? "Ke Bukateja" : "Ke Bulupitu"}</button>)}
+              {routeDirections.map(item => <button key={item.id} disabled={!fleet.some(bus => bus.direction === item.id)} aria-pressed={directionId === item.id} onClick={() => changeDirection(item.id)}>{item.id === "bukateja" ? "Ke Bukateja" : "Ke Bulupitu"}</button>)}
             </div>
             <label className="map-search-label" htmlFor="map-stop-search">Cari nama halte</label>
             <div className="map-search"><Icon name="search" /><input id="map-stop-search" type="search" placeholder="Contoh: Terminal Jompo" value={query} onChange={event => setQuery(event.target.value)} autoComplete="off" /></div>
@@ -153,7 +192,7 @@ export default function StopMap({ name, category, onPlanTrip }) {
           </div>
           <ol className="explorer-stop-list" aria-label={direction.title}>
             {results.map(point => <li key={point.name}><button className={point.index === selected ? "is-selected" : ""}
-              aria-pressed={point.index === selected} onClick={() => setSelected(point.index)}>
+              aria-pressed={point.index === selected} onClick={() => selectStop(point.index)}>
               <span className="explorer-stop-index">{String(point.index + 1).padStart(2, "0")}</span>
               <span>{point.name}{(point.index === 0 || point.index === points.length - 1) && <small>{point.index === 0 ? "Awal lintasan" : "Akhir lintasan"}</small>}</span>
               {point.index === selected && <span className="stop-selected-check" aria-hidden="true">✓</span>}
@@ -164,22 +203,31 @@ export default function StopMap({ name, category, onPlanTrip }) {
         </aside>
 
         <div className="map-main-panel">
-          <div className="map-panel-heading"><div><span className="map-route-code">{directionId === "bukateja" ? "1A" : "1B"}</span><div><h2>{direction.title}</h2><p>{points.length} titik singgah pada lintasan</p></div></div><span className="map-demo-badge">Pratinjau</span></div>
-          <CorridorMap key={directionId} direction={direction} points={points} selected={selected} onSelect={setSelected} />
+          <div className="map-panel-heading"><div><span className="map-route-code">{directionId === "bukateja" ? "1A" : "1B"}</span><div><h2>{direction.title}</h2><p>{points.length} halte · {buses.length} bus{isDemo ? " contoh" : ""}</p></div></div><SimulationToggle isDemo={isDemo} running={simulationRunning} onToggle={onToggleSimulation} /></div>
+          <CorridorMap key={directionId} direction={direction} points={points} selected={selected} onSelect={selectStop} buses={buses} activeBus={activeBus} onSelectBus={onSelectBus} />
           <div className="stop-detail" id="selected-stop-detail">
-            <div className="stop-detail-title" key={directionId + stop} aria-live="polite" aria-atomic="true"><span className="detail-pin"><Icon name="pin" /></span><div><p>{terminal ? "Terminal" : "Halte"} · Titik {selected + 1} dari {points.length}</p><h3>{stop}</h3></div></div>
-            <div className="stop-neighbors"><div><small>Sebelumnya</small><strong>{direction.stops[selected - 1] || "Awal lintasan"}</strong></div><span aria-hidden="true">/</span><div><small>Berikutnya</small><strong>{direction.stops[selected + 1] || "Akhir lintasan"}</strong></div></div>
-            <div className="stop-detail-actions"><button className="map-primary-action" disabled={selected === points.length - 1} onClick={() => onPlanTrip({ from: stop, to: direction.stops.at(-1) })}>Jadikan keberangkatan</button><button className="map-secondary-action" disabled={selected === 0} onClick={() => onPlanTrip({ from: direction.stops[0], to: stop })}>Jadikan tujuan</button></div>
+            <div className="map-selected-stop-row"><div className="stop-detail-title" key={directionId + stop} aria-live="polite" aria-atomic="true"><span className="detail-pin"><Icon name="pin" /></span><div><p>{terminal ? "Terminal" : "Halte"} naik & pantauan · {selected + 1}/{points.length}</p><h3>{stop}</h3></div></div><button className="tracking-map-link" onClick={showBooking}>Pesan tiket</button></div>
+            <BusStatus bus={activeBus} boardingIndex={selected} />
           </div>
         </div>
       </div>
 
-      <div className="map-data-note"><Icon name="layers" /><p><strong>Kenali lintasan sebelum berangkat.</strong> Skema menunjukkan urutan halte, bukan jarak atau posisi geografis. Lokasi bus dan fasilitas menunggu data layanan.</p></div>
-      <div className="map-service-strip" data-reveal><div><p className="map-eyebrow">INFORMASI HALTE</p><h2>Lebih siap sebelum naik.</h2><p>Informasi berikut akan tampil saat data layanan tersedia.</p></div>
-        <div className="map-service-items">{[["clock", "Kedatangan bus"], ["access", "Aksesibilitas"], ["seat", "Fasilitas halte"]].map(([icon, label]) => <div key={icon}><Icon name={icon} /><strong>{label}</strong><span>Menunggu data</span></div>)}</div>
+      <div className="map-operations" data-reveal>
+        <div className="map-fleet-panel"><div className="monitor-panel-heading"><div><p className="tracking-eyebrow">PILIH ARMADA</p><h2>Bus menuju halte pilihan</h2><p>{stop} · {direction.title}</p></div><span className="map-demo-badge">{isDemo ? "Simulasi" : "Laporan supir"}</span></div>
+          <div className="map-fleet-list">{orderedBuses.map(bus => {
+            const arrival = arrivalAt(bus, selected);
+            const position = busLocation(bus);
+            return <button key={bus.id} className={"fleet-option" + (bus.id === activeBus.id ? " is-selected" : "")} aria-label={"Pilih armada " + bus.code} aria-pressed={bus.id === activeBus.id} onClick={() => onSelectBus(bus.id)}>
+              <span className="fleet-option-icon"><BusSymbol /><strong>{bus.code}</strong></span><span className="fleet-option-info"><strong>{arrival.state === "passed" ? "Sudah melewati halte naik" : "Menuju " + stop}</strong><span>Terakhir: {position.lastStop}</span><span className="fleet-capacity-label">{bus.passengers}/{bus.capacity} penumpang {position.available ? "· " + position.available + " kapasitas tersisa" : "· Penuh"}</span><span className="fleet-capacity-track"><i style={{ width: bus.passengers / bus.capacity * 100 + "%" }} /></span></span><span className={"fleet-option-eta " + arrival.state}>{arrival.label}<small>{bus.id === activeBus.id ? "Dipilih" : "Pilih bus"}</small></span>
+            </button>;
+          })}</div>
+        </div>
+        <MapBooking key={directionId} bus={activeBus} direction={direction} selected={selected} onSelect={selectStop} destination={destination} onDestination={setDestination} category={category} onBook={onBook} />
       </div>
+      <div className="map-data-note"><Icon name="layers" /><p><strong>{isDemo ? "Mode demonstrasi. " : "Laporan perjalanan. "}</strong>{isDemo ? "Posisi bus, penumpang, dan ETA adalah simulasi. " : "Posisi menunjukkan halte terakhir yang dilaporkan supir. "}Skema menunjukkan urutan halte. Pemesanan masih berupa simulasi frontend.</p></div>
     </div>
     </div>
     <SiteFooter />
+    <button className="map-mobile-booking" onClick={showBooking}><span><strong>{activeBus.code} · {arrivalAt(activeBus, selected).label}</strong><small>{activeBus.passengers}/{activeBus.capacity} penumpang · {isDemo ? "simulasi" : "laporan supir"}</small></span><span>Pesan tiket</span></button>
   </div>;
 }

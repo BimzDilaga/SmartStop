@@ -1,7 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
-import { corridor, findJourney, outboundStops, inboundStops, rupiah } from "./transit.js";
-import Landing from "./Landing.jsx";
+import { corridor, outboundStops } from "./transit.js";
+import Landing, { SiteHeader } from "./Landing.jsx";
 import StopMap from "./StopMap.jsx";
+import CorridorPage from "./CorridorPage.jsx";
+import InfrastructurePage from "./InfrastructurePage.jsx";
+import TicketPage, { TicketCheckout } from "./TicketPage.jsx";
+import { createTicketDraft } from "./ticketModel.js";
+import { advanceDemoFleet, createDemoFleet, busLocation } from "./fleet.js";
+import { smartStopApi } from "./services/smartstopApi.js";
+import { normalizeFleetSnapshot } from "./services/fleetAdapter.js";
 import "./portal.css";
 
 const pageNames = {
@@ -10,25 +17,65 @@ const pageNames = {
   struk: "Struk tiket", lapor: "Lapor masalah", profil: "Profil"
 };
 const { stops } = corridor;
+const configuredFleetSource = import.meta.env?.VITE_FLEET_SOURCE === "api" ? smartStopApi.fleet : null;
 const routeFromHash = () => Object.hasOwn(pageNames, location.hash.slice(1)) ? location.hash.slice(1) : "beranda";
 
-function StopList({ items }) {
-  return <ol className="line-list">{items.map(stop => <li key={stop}>{stop}</li>)}</ol>;
-}
-
-export default function Portal({ name, category, onLogout }) {
+export default function Portal({ name, category, onLogout, fleetSource = configuredFleetSource }) {
   const student = category === "pelajar";
   const label = student ? "Pelajar" : "Umum";
-  const fare = student ? corridor.studentFare : corridor.generalFare;
   const pages = { ...pageNames, tiket: "Tiket " + category };
   const [page, setPage] = useState(routeFromHash);
   const [trip, setTrip] = useState({ from: outboundStops[0], to: outboundStops.at(-1) });
-  const [stop, setStop] = useState(stops[0]);
+  const [ticketDraft, setTicketDraft] = useState(() => createTicketDraft({ name, trip: { from: outboundStops[0], to: outboundStops.at(-1) } }));
   const [reverse, setReverse] = useState(false);
   const [order, setOrder] = useState(null);
   const [receipt, setReceipt] = useState(null);
   const [reports, setReports] = useState([]);
+  const [fleet, setFleet] = useState(() => fleetSource ? [] : createDemoFleet());
+  const [fleetStatus, setFleetStatus] = useState(fleetSource ? "loading" : "demo");
+  const [fleetError, setFleetError] = useState("");
+  const [fleetRetry, setFleetRetry] = useState(0);
+  const [monitoredBus, setMonitoredBus] = useState("4");
+  const [simulationRunning, setSimulationRunning] = useState(false);
+  const [mapFocus, setMapFocus] = useState(null);
   const heading = useRef(null);
+  useEffect(() => {
+    setTicketDraft(current => ({ ...current, from: trip.from, to: trip.to, ...(name ? { ownerName: name } : {}) }));
+  }, [trip.from, trip.to, name]);
+  useEffect(() => {
+    if (!fleetSource) return;
+    let active = true;
+    let timer;
+    let controller;
+    setSimulationRunning(false);
+    async function refresh() {
+      controller = new AbortController();
+      try {
+        const snapshot = await fleetSource.snapshot(controller.signal);
+        const records = normalizeFleetSnapshot(snapshot);
+        if (!active) return;
+        setFleet(records);
+        setMonitoredBus(current => records.some(bus => bus.id === current) ? current : records[0]?.id || "");
+        setFleetError("");
+        setFleetStatus(records.length ? "ready" : "empty");
+      } catch (error) {
+        if (!active || error.name === "AbortError") return;
+        setFleetStatus("error");
+        setFleetError(error.message || "Data armada belum dapat dimuat.");
+      } finally {
+        if (active) timer = setTimeout(refresh, 15000);
+      }
+    }
+    refresh();
+    return () => { active = false; clearTimeout(timer); controller?.abort(); };
+  }, [fleetSource, fleetRetry]);
+  useEffect(() => {
+    if (!simulationRunning || fleetSource) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) setFleet(advanceDemoFleet);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [simulationRunning, fleetSource]);
   useEffect(() => {
     const update = () => setPage(routeFromHash());
     window.addEventListener("hashchange", update);
@@ -50,46 +97,39 @@ export default function Portal({ name, category, onLogout }) {
     });
     return () => observer.disconnect();
   }, [page, category]);
-  const journey = findJourney(trip.from, trip.to);
-  function book(e) {
-    e.preventDefault();
-    if (!journey) return;
-    const form = new FormData(e.currentTarget);
-    setOrder({ fare, time: form.get("departure"), quantity: Number(form.get("quantity")), ...trip });
-    location.hash = "pembayaran";
+  function openMap(id = monitoredBus, stopName) {
+    const bus = fleet.find(item => item.id === id) || fleet[0];
+    if (!bus) { location.hash = "peta"; return; }
+    const position = busLocation(bus);
+    setMonitoredBus(bus.id);
+    setMapFocus({ direction: bus.direction, stop: stopName || position.direction.stops[Math.min(position.lastIndex + 2, position.direction.stops.length - 1)] });
+    location.hash = "peta";
+  }
+  const tracking = { fleet, monitoredBus, onSelectBus: setMonitoredBus, simulationRunning, isDemo: !fleetSource,
+    fleetError, onRetry: () => setFleetRetry(value => value + 1),
+    onToggleSimulation: () => { if (!fleetSource) setSimulationRunning(value => !value); }, onOpenMap: openMap };
+  if (["beranda", "jadwal", "peta"].includes(page) && !fleet.length) {
+    return <div className="landing fleet-data-state"><SiteHeader name={name} category={category} /><div className="fleet-data-empty" role="status"><p className="tracking-eyebrow">LAPORAN ARMADA</p><h1>{fleetStatus === "loading" ? "Memuat data armada…" : fleetStatus === "empty" ? "Belum ada armada aktif" : "Data armada belum tersedia"}</h1><p>{fleetError || "Status perjalanan akan muncul setelah laporan supir tersedia di server."}</p><button className="tracking-map-link" onClick={() => setFleetRetry(value => value + 1)}>Muat ulang data</button></div></div>;
   }
   if (page === "beranda" || page === "jadwal") {
-    return <Landing name={name} category={category} trip={trip} setTrip={setTrip} onChooseCorridor={setReverse} />;
+    return <Landing name={name} category={category} trip={trip} setTrip={setTrip} onChooseCorridor={setReverse} {...tracking} />;
   }
   if (page === "peta") {
-    return <StopMap name={name} category={category} onPlanTrip={nextTrip => {
-      setTrip(nextTrip);
-      location.hash = "jadwal";
+    return <StopMap name={name} category={category} {...tracking} focus={mapFocus} onBook={ticket => {
+      setTrip({ from: ticket.from, to: ticket.to });
+      setReceipt(ticket);
     }} />;
   }
-  return <div className="portal">
-    <header className="mast"><a className="wordmark" href="#beranda">Smart<span>Stop</span></a>
-      <div className="mast-links">{["beranda","jadwal","peta","tiket"].map(key =>
-        <a key={key} aria-current={page === key ? "page" : undefined} href={"#"+key}>{pages[key]}</a>)}</div>
-      <a className="account-link" href={name ? "#profil" : "#masuk"}>{name ? "Profil" : "Login"}</a></header>
+  if (page === "koridor") return <CorridorPage name={name} category={category} initialReverse={reverse} {...tracking} />;
+  if (page === "infrastruktur") return <InfrastructurePage name={name} category={category} fleet={fleet} isDemo={!fleetSource} />;
+  if (page === "tiket") return <TicketPage name={name} category={category} draft={ticketDraft} setDraft={setTicketDraft} setTrip={setTrip} onReview={record => { setOrder(record); location.hash = "pembayaran"; }} />;
+  if (page === "pembayaran" || page === "struk") return <TicketCheckout key={page} name={name} category={category} page={page} order={order} receipt={receipt} onComplete={record => { setReceipt(record); setOrder(null); location.hash = "struk"; }} />;
+  return <div className="portal portal-secondary">
+    <SiteHeader name={name} category={category} activePage={page} />
     <div className="portal-body" key={page}>
       <p className="context">Purbalingga ↔ Purwokerto <span>Data contoh</span></p>
       {page !== "beranda" && <a href="#beranda">← Beranda</a>}
       <h1 ref={heading} tabIndex="-1">{pages[page]}</h1>
-      {page === "koridor" && <article className="surface"><h2>{corridor.name} · Bulupitu ↔ Bukateja</h2><button className="outline" onClick={()=>setReverse(!reverse)}>Balik arah ⇄</button><StopList items={reverse ? inboundStops : outboundStops}/><a href="#peta">Buka peta halte →</a></article>}
-      {page === "infrastruktur" && <article className="surface">
-        <h2>Fasilitas per halte</h2>
-        <div className="station-grid"><div className="stations">{stops.map(s=><button key={s} aria-pressed={s === stop} onClick={()=>setStop(s)}>{s}</button>)}</div>
-        <div className="station-info"><small>{corridor.name}</small><h3>{stop}</h3>
-        <p>Informasi akses kursi roda, tempat duduk, dan kondisi halte belum tersedia.</p></div></div></article>}
-      {page === "tiket" && <form className="surface" onSubmit={book}><h2>{pages.tiket} · {rupiah(fare)}</h2>
-        <p>{trip.from} → {trip.to} · <a href="#jadwal">Ubah rute</a></p><label>Keberangkatan contoh (WIB)<select name="departure">{corridor.departures.map(t=><option key={t}>{t}</option>)}</select></label>
-        <label>Jumlah penumpang<input type="number" name="quantity" min="1" max="10" defaultValue="1" required/></label>
-        {!journey && <p>Pilih dua halte pada lintasan yang sama di halaman jadwal.</p>}
-        <button className="go" disabled={!journey}>Tinjau pesanan</button></form>}
-      {page === "pembayaran" && <article className="surface"><h2>Ringkasan pesanan</h2>{order ? <><p>{order.from} → {order.to}</p><p>{order.time} WIB · {order.quantity} penumpang</p><h3>Total {rupiah(order.quantity*order.fare)}</h3><p>Simulasi pembayaran tanpa transaksi uang.</p>
-        <button className="go" onClick={()=>{setReceipt(order);setOrder(null);location.hash="struk";}}>Selesaikan simulasi</button></> : <a href="#tiket">Pilih tiket dahulu →</a>}</article>}
-      {page === "struk" && <article className="surface"><h2>{receipt ? "Bukti simulasi tiket" : "Belum ada tiket"}</h2>{receipt && <><p>{receipt.from} → {receipt.to}</p><p>{receipt.time} WIB · {receipt.quantity} penumpang · {rupiah(receipt.quantity*receipt.fare)}</p><p>Tiket contoh ini tidak berlaku untuk perjalanan.</p></>}<a href="#tiket">Kembali ke tiket →</a></article>}
       {page === "lapor" && <form className="surface" onSubmit={e=>{e.preventDefault();const data=new FormData(e.currentTarget);setReports([...reports,{stop:data.get("stop"),issue:data.get("issue")}]);e.currentTarget.reset();}}>
         <h2>Laporan halte</h2><label>Lokasi<select name="stop">{stops.map(s=><option key={s}>{s}</option>)}</select></label><label>Kendala<textarea name="issue" required maxLength="1000" rows="3"/></label>
         <button className="go">Simpan laporan demo</button><div role="status">{reports.length>0 && <h3>Laporan demo tersimpan sementara</h3>}{reports.map((r,i)=><p key={i}><strong>{r.stop}</strong> · {r.issue}</p>)}</div></form>}
